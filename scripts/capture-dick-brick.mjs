@@ -13,7 +13,7 @@ async function json(path, fallback) { try { return JSON.parse(await readFile(pat
 async function writeJson(path, value) { await mkdir(dirname(path), { recursive: true }); await writeFile(path, `${JSON.stringify(value, null, 2)}\n`); }
 function nyParts(date) { return Object.fromEntries(nyFormatter.formatToParts(date).filter(part => part.type !== 'literal').map(part => [part.type, part.value])); }
 function espnHeaders() { const cookies = [`espn_s2=${process.env.ESPN_S2 || ''}`, `SWID=${process.env.ESPN_SWID || ''}`].filter(cookie => !cookie.endsWith('=')); return cookies.length ? { Cookie: cookies.join('; ') } : {}; }
-async function fetchJson(url) { const response = await fetch(url, { headers: espnHeaders() }); if (!response.ok) throw new Error(`${response.status} from ${new URL(url).hostname}`); return response.json(); }
+async function fetchJson(url, authenticated = false) { const response = await fetch(url, { headers: authenticated ? espnHeaders() : {} }); if (!response.ok) throw new Error(`${response.status} from ${new URL(url).hostname}`); return response.json(); }
 
 export function projectedWinProbability(teamProjection, opponentProjection) {
   // A 12-point live projection edge corresponds to a 73% pre-MNF win chance.
@@ -41,7 +41,7 @@ async function getFirstMondayKickoff(now) {
   return (games.events || []).map(event => new Date(event.date)).filter(value => Number.isFinite(value.valueOf())).sort((a, b) => a - b)[0] || null;
 }
 async function leagueScoreboard() {
-  const payload = await fetchJson(`https://fantasy.espn.com/apis/v3/games/ffl/seasons/${season}/segments/0/leagues/${leagueId}?view=mMatchupScore&view=mTeam&view=mSettings`);
+  const payload = await fetchJson(`https://fantasy.espn.com/apis/v3/games/ffl/seasons/${season}/segments/0/leagues/${leagueId}?view=mMatchupScore&view=mTeams&view=mSettings`, true);
   const week = Number(payload.status?.currentMatchupPeriod || payload.scoringPeriodId);
   if (!Number.isInteger(week) || week < 1) throw new Error('ESPN did not return a current matchup period');
   const members = new Map((payload.members || []).map(member => [String(member.id), member.displayName || [member.firstName, member.lastName].filter(Boolean).join(' ') || 'Manager']));
