@@ -87,9 +87,15 @@ async function finalize() {
   if (changed) { ledger.awards.sort((a, b) => b.season - a.season || b.week - a.week); await writeJson(ledgerPath, ledger); await writeJson(snapshotsPath, snapshots); }
   return { changed, message: changed ? 'Finalized available Dick Brick award(s).' : 'Current week is not final yet.' };
 }
+async function verify() {
+  const { week, schedule } = await leagueScoreboard();
+  if (!schedule.length) throw new Error('ESPN returned no matchups for the current week');
+  return { changed: false, message: `Verified ESPN access for Week ${week}: ${schedule.length} matchup(s) available.` };
+}
 async function main() {
   if (!process.env.ESPN_S2 || !process.env.ESPN_SWID) { console.log('Skipping capture: ESPN_S2 and ESPN_SWID are not configured.'); return; }
   const results = [];
+  if (mode === 'verify') results.push(await verify());
   if (mode === 'auto' || mode === 'capture') results.push(await capture(new Date()));
   if (mode === 'auto' || mode === 'finalize') results.push(await finalize());
   for (const result of results) console.log(result.message);

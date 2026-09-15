@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Capture, finalize, or do both
+        description: Verify ESPN access, capture, finalize, or do both
         type: choice
-        options: [auto, capture, finalize]
+        options: [verify, auto, capture, finalize]
         default: auto
   schedule:
     # Covers 6pm–1am Eastern on Monday, including early doubleheaders and DST.
