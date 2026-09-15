@@ -1,0 +1,46 @@
+name: Capture Dick Brick
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Capture, finalize, or do both
+        type: choice
+        options: [auto, capture, finalize]
+        default: auto
+  schedule:
+    # Covers 6pm–1am Eastern on Monday, including early doubleheaders and DST.
+    - cron: '*/5 22-23 * * 1'
+    - cron: '*/5 0-5 * * 2'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dick-brick-capture
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Capture or finalize the weekly record
+        env:
+          ESPN_LEAGUE_ID: '791101930'
+          ESPN_S2: ${{ secrets.ESPN_S2 }}
+          ESPN_SWID: ${{ secrets.ESPN_SWID }}
+        run: node scripts/capture-dick-brick.mjs "${{ inputs.mode || 'auto' }}"
+      - name: Commit verified records
+        run: |
+          if git diff --quiet -- data/dick-bricks.json data/dick-brick-snapshots.json; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/dick-bricks.json data/dick-brick-snapshots.json
+          git commit -m "data: capture Dick Brick record"
+          git push

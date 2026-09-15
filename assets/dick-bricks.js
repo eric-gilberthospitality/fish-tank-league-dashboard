@@ -111,5 +111,5 @@ export default function DickBrickAward() {
           h('tbody', null, receipts.map(row => h('tr', { key: row.week },
             h('td', null, `W${row.week}`), h('td', null, h('b', null, row.team), h('small', null, row.manager)),
             h('td', null, row.opponent), h('td', { className: 'minus' }, `${row.winProbability}%`), h('td', null, row.finalScore))))))),
-    h('p', { className: 'brick-rule' }, 'One brick per week. Season totals count recorded awards only. Pre-MNF probability capture is not automated yet.'));
+    h('p', { className: 'brick-rule' }, 'One brick per week. Season totals count recorded awards only. A Monday-night capture records ESPN live projections and derives each probability.'));
 }
