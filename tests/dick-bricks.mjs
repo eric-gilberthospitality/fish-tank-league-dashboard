@@ -65,9 +65,15 @@ globalThis.fetch = async () => ({ ok: true, json: async () => archive });
 const hub = mount(Hub);
 hub.render(); await hub.flush();
 let tree = hub.render();
+const nav = nodes(tree).filter(node => node && typeof node === 'object' && node.type === 'button').map(text);
+assert.deepEqual(nav.slice(1, 5), ['Overview', 'Standings', 'Dick Bricks', 'Tank Features']);
 find(tree, node => node.type === 'button' && text(node) === 'Dick Bricks').props.onClick();
 tree = hub.render();
 assert.ok(find(tree, node => node.type === Award), 'Navigation must render Award, not the season setter');
+find(tree, node => node.type === 'button' && text(node) === 'Tank Features').props.onClick();
+tree = hub.render();
+assert.match(text(tree), /Tank Features/);
+assert.ok(find(tree, node => node.props?.title === 'Dick Brick of the Week'), 'Tank Features must retain the award feature card');
 
 let requests = 0;
 globalThis.fetch = async () => { requests++; return { ok: true, json: async () => ({ awards }) }; };

@@ -12,8 +12,24 @@ const nyFormatter = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_Yo
 async function json(path, fallback) { try { return JSON.parse(await readFile(path, 'utf8')); } catch (error) { if (error.code === 'ENOENT') return fallback; throw error; } }
 async function writeJson(path, value) { await mkdir(dirname(path), { recursive: true }); await writeFile(path, `${JSON.stringify(value, null, 2)}\n`); }
 function nyParts(date) { return Object.fromEntries(nyFormatter.formatToParts(date).filter(part => part.type !== 'literal').map(part => [part.type, part.value])); }
-function espnHeaders() { const cookies = [`espn_s2=${process.env.ESPN_S2 || ''}`, `SWID=${process.env.ESPN_SWID || ''}`].filter(cookie => !cookie.endsWith('=')); return cookies.length ? { Cookie: cookies.join('; ') } : {}; }
-async function fetchJson(url, authenticated = false) { const response = await fetch(url, { headers: authenticated ? espnHeaders() : {} }); if (!response.ok) throw new Error(`${response.status} from ${new URL(url).hostname}`); return response.json(); }
+function espnHeaders() {
+  const cookies = [`espn_s2=${process.env.ESPN_S2 || ''}`, `SWID=${process.env.ESPN_SWID || ''}`].filter(cookie => !cookie.endsWith('='));
+  return {
+    Accept: 'application/json, text/plain, */*',
+    Referer: 'https://fantasy.espn.com/',
+    'User-Agent': 'Mozilla/5.0 (compatible; FishTankLeagueHub/1.0)',
+    ...(cookies.length ? { Cookie: cookies.join('; ') } : {})
+  };
+}
+async function fetchJson(url, authenticated = false) {
+  const response = await fetch(url, { headers: authenticated ? espnHeaders() : { Accept: 'application/json, text/plain, */*' } });
+  const body = await response.text();
+  const host = new URL(url).hostname;
+  if (!response.ok) throw new Error(`${response.status} from ${host}`);
+  if (!body.trim()) throw new Error(`${host} returned an empty response. Refresh the ESPN_S2 and ESPN_SWID repository secrets, then run Verify ESPN access again.`);
+  try { return JSON.parse(body); }
+  catch { throw new Error(`${host} returned a non-JSON response (${response.headers.get('content-type') || 'unknown content type'}). Refresh the ESPN_S2 and ESPN_SWID repository secrets, then run Verify ESPN access again.`); }
+}
 
 export function projectedWinProbability(teamProjection, opponentProjection) {
   // A 12-point live projection edge corresponds to a 73% pre-MNF win chance.
