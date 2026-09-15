@@ -57,7 +57,7 @@ async function getFirstMondayKickoff(now) {
   return (games.events || []).map(event => new Date(event.date)).filter(value => Number.isFinite(value.valueOf())).sort((a, b) => a - b)[0] || null;
 }
 async function leagueScoreboard() {
-  const payload = await fetchJson(`https://fantasy.espn.com/apis/v3/games/ffl/seasons/${season}/segments/0/leagues/${leagueId}?view=mMatchupScore&view=mTeams&view=mSettings`, true);
+  const payload = await fetchJson(`https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${season}/segments/0/leagues/${leagueId}?view=mMatchupScore&view=mTeams&view=mSettings`, true);
   const week = Number(payload.status?.currentMatchupPeriod || payload.scoringPeriodId);
   if (!Number.isInteger(week) || week < 1) throw new Error('ESPN did not return a current matchup period');
   const members = new Map((payload.members || []).map(member => [String(member.id), member.displayName || [member.firstName, member.lastName].filter(Boolean).join(' ') || 'Manager']));
