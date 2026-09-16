@@ -56,13 +56,41 @@ async function getFirstMondayKickoff(now) {
   const games = await fetchJson(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=${date.year}${date.month}${date.day}&limit=1000`);
   return (games.events || []).map(event => new Date(event.date)).filter(value => Number.isFinite(value.valueOf())).sort((a, b) => a - b)[0] || null;
 }
-async function leagueScoreboard() {
-  const payload = await fetchJson(`https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${season}/segments/0/leagues/${leagueId}?view=mMatchupScore&view=mTeams&view=mSettings`, true);
-  const week = Number(payload.status?.currentMatchupPeriod || payload.scoringPeriodId);
+async function leagueScoreboard(requestedWeek, includeBoxscore = false) {
+  const query = new URLSearchParams();
+  for (const view of ['mMatchupScore', 'mTeams', 'mSettings', ...(includeBoxscore ? ['mBoxscore'] : [])]) query.append('view', view);
+  if (requestedWeek) { query.set('matchupPeriodId', requestedWeek); query.set('scoringPeriodId', requestedWeek); }
+  const payload = await fetchJson(`https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${season}/segments/0/leagues/${leagueId}?${query}`, true);
+  const week = Number(requestedWeek || payload.status?.currentMatchupPeriod || payload.scoringPeriodId);
   if (!Number.isInteger(week) || week < 1) throw new Error('ESPN did not return a current matchup period');
   const members = new Map((payload.members || []).map(member => [String(member.id), member.displayName || [member.firstName, member.lastName].filter(Boolean).join(' ') || 'Manager']));
   const teams = new Map((payload.teams || []).map(team => [team.id, { managerId: String(team.owners?.[0] || team.id), manager: members.get(String(team.owners?.[0])) || `Team ${team.id}`, team: [team.location, team.nickname].filter(Boolean).join(' ') || `Team ${team.id}` }]));
   return { week, teams, schedule: (payload.schedule || []).filter(matchup => matchup.matchupPeriodId === week && matchup.home && matchup.away) };
+}
+function activeEntries(side) { return (side.rosterForCurrentScoringPeriod?.entries || []).filter(entry => ![20, 21].includes(entry.lineupSlotId)); }
+function forecast(entry) {
+  const stats = entry.playerPoolEntry?.player?.stats || [];
+  const projected = stats.find(stat => stat.statSourceId === 0 && Number.isFinite(Number(stat.appliedTotal ?? stat.appliedStatTotal)));
+  return Number(projected?.appliedTotal ?? projected?.appliedStatTotal ?? 0);
+}
+export function estimateSideAtKickoff(side, team, kickoffByProTeam, kickoff) {
+  let pointsScored = 0, remainingProjection = 0;
+  const unmatchedPlayers = [];
+  for (const entry of activeEntries(side)) {
+    const player = entry.playerPoolEntry?.player || {};
+    const playerKickoff = kickoffByProTeam.get(String(player.proTeamId));
+    if (!playerKickoff) { unmatchedPlayers.push(player.fullName || `Player ${player.id}`); continue; }
+    if (playerKickoff >= kickoff) remainingProjection += forecast(entry);
+    else pointsScored += Number(entry.playerPoolEntry?.appliedStatTotal ?? 0);
+  }
+  return { ...team, pointsScored: Math.round(pointsScored * 100) / 100, remainingProjection: Math.round(remainingProjection * 100) / 100, projectedPoints: Math.round((pointsScored + remainingProjection) * 100) / 100, unmatchedPlayers };
+}
+async function weekKickoffs(week) {
+  const payload = await fetchJson(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=${season}&seasontype=2&week=${week}&limit=1000`);
+  const events = (payload.events || []).map(event => ({ date: new Date(event.date), teams: event.competitions?.[0]?.competitors?.map(competitor => String(competitor.team?.id)) || [] })).filter(event => Number.isFinite(event.date.valueOf()));
+  const firstMnfKickoff = events.map(event => event.date).filter(date => nyParts(date).weekday === 'Monday').sort((a, b) => a - b)[0];
+  if (!firstMnfKickoff) throw new Error(`No Monday Night Football kickoff found for Week ${week}`);
+  return { firstMnfKickoff, kickoffByProTeam: new Map(events.flatMap(event => event.teams.map(teamId => [teamId, event.date]))) };
 }
 function projectedSide(side, details, opponent) {
   const projectedPoints = Number(side.totalProjectedPointsLive ?? side.totalPoints ?? 0);
@@ -108,10 +136,27 @@ async function verify() {
   if (!schedule.length) throw new Error('ESPN returned no matchups for the current week');
   return { changed: false, message: `Verified ESPN access for Week ${week}: ${schedule.length} matchup(s) available.` };
 }
+async function backfill(week = 1) {
+  const { teams, schedule } = await leagueScoreboard(week, true);
+  if (!schedule.length) throw new Error(`ESPN returned no Week ${week} matchups`);
+  const { firstMnfKickoff, kickoffByProTeam } = await weekKickoffs(week);
+  const matchups = schedule.map(matchup => {
+    const home = estimateSideAtKickoff(matchup.home, teams.get(matchup.home.teamId), kickoffByProTeam, firstMnfKickoff);
+    const away = estimateSideAtKickoff(matchup.away, teams.get(matchup.away.teamId), kickoffByProTeam, firstMnfKickoff);
+    home.winProbability = projectedWinProbability(home.projectedPoints, away.projectedPoints);
+    away.winProbability = projectedWinProbability(away.projectedPoints, home.projectedPoints);
+    return { id: matchup.id, home, away };
+  });
+  if (matchups.some(matchup => matchup.home.unmatchedPlayers.length || matchup.away.unmatchedPlayers.length)) throw new Error('ESPN did not map every active player to an NFL kickoff; the Week 1 estimate cannot be verified.');
+  const candidate = awardCandidate({ matchups }, schedule);
+  console.log(JSON.stringify({ method: 'retroactive estimate from ESPN retained player forecasts and the Week 1 first-Monday-kickoff state', week, firstMnfKickoff: firstMnfKickoff.toISOString(), candidate, matchups }, null, 2));
+  return { changed: false, message: `Reported a retroactive Week ${week} estimate. Review the workflow log before recording the award.` };
+}
 async function main() {
   if (!process.env.ESPN_S2 || !process.env.ESPN_SWID) { console.log('Skipping capture: ESPN_S2 and ESPN_SWID are not configured.'); return; }
   const results = [];
   if (mode === 'verify') results.push(await verify());
+  if (mode === 'backfill') results.push(await backfill(1));
   if (mode === 'auto' || mode === 'capture') results.push(await capture(new Date()));
   if (mode === 'auto' || mode === 'finalize') results.push(await finalize());
   for (const result of results) console.log(result.message);

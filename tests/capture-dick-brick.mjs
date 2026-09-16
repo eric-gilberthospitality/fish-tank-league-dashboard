@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { awardCandidate, projectedWinProbability } from '../scripts/capture-dick-brick.mjs';
+import { awardCandidate, estimateSideAtKickoff, projectedWinProbability } from '../scripts/capture-dick-brick.mjs';
 
 const side = (manager, probability, projectedPoints) => ({ manager, managerId: manager, team: `${manager} team`, winProbability: probability, projectedPoints });
 const snapshot = {
@@ -12,6 +12,13 @@ const snapshot = {
 assert.equal(projectedWinProbability(100, 100), 50);
 assert.ok(projectedWinProbability(112, 100) > 70 && projectedWinProbability(112, 100) < 75);
 assert.equal(projectedWinProbability(80, 100), 15.9);
+const kickoff = new Date('2026-09-15T00:15:00Z');
+const estimatedSide = estimateSideAtKickoff({ rosterForCurrentScoringPeriod: { entries: [
+  { lineupSlotId: 0, playerPoolEntry: { appliedStatTotal: 18, player: { fullName: 'Sunday player', proTeamId: 1, stats: [] } } },
+  { lineupSlotId: 2, playerPoolEntry: { appliedStatTotal: 0, player: { fullName: 'Monday player', proTeamId: 2, stats: [{ statSourceId: 0, appliedTotal: 12.5 }] } } },
+  { lineupSlotId: 20, playerPoolEntry: { appliedStatTotal: 99, player: { fullName: 'Bench player', proTeamId: 1, stats: [] } } }
+] } }, { manager: 'A', team: 'A team' }, new Map([['1', new Date('2026-09-14T17:00:00Z')], ['2', kickoff]]), kickoff);
+assert.deepEqual([estimatedSide.pointsScored, estimatedSide.remainingProjection, estimatedSide.projectedPoints], [18, 12.5, 30.5]);
 const award = awardCandidate(snapshot, [
   { id: 1, winner: 'HOME', home: { totalPoints: 123.45 }, away: { totalPoints: 111.11 } },
   { id: 2, winner: 'HOME', home: { totalPoints: 120 }, away: { totalPoints: 119.5 } }
