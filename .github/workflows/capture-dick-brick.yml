@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Verify ESPN access, capture, finalize, backfill Week 1, or do both
+        description: Verify ESPN access, capture, finalize, review Week 1, or do both
         type: choice
         options: [verify, auto, capture, finalize, backfill]
         default: auto

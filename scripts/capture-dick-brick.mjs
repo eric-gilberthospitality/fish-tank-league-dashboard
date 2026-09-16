@@ -68,22 +68,23 @@ async function leagueScoreboard(requestedWeek, includeBoxscore = false) {
   return { week, teams, schedule: (payload.schedule || []).filter(matchup => matchup.matchupPeriodId === week && matchup.home && matchup.away) };
 }
 function activeEntries(side) { return (side.rosterForCurrentScoringPeriod?.entries || []).filter(entry => ![20, 21].includes(entry.lineupSlotId)); }
-function forecast(entry) {
-  const stats = entry.playerPoolEntry?.player?.stats || [];
-  const projected = stats.find(stat => stat.statSourceId === 0 && Number.isFinite(Number(stat.appliedTotal ?? stat.appliedStatTotal)));
-  return Number(projected?.appliedTotal ?? projected?.appliedStatTotal ?? 0);
-}
-export function estimateSideAtKickoff(side, team, kickoffByProTeam, kickoff) {
-  let pointsScored = 0, remainingProjection = 0;
+// ESPN rewrites historical statSourceId:0 projections after a matchup ends.  Do
+// not use that field for a backfill: it is then a final-stat lookalike, not a
+// pre-kickoff forecast.  This helper only reconstructs the verifiable lineup
+// and score state for a retrospective review.
+export function sideAtKickoffReview(side, team, kickoffByProTeam, kickoff) {
+  let pointsScored = 0;
+  const remainingPlayers = [];
   const unmatchedPlayers = [];
   for (const entry of activeEntries(side)) {
     const player = entry.playerPoolEntry?.player || {};
     const playerKickoff = kickoffByProTeam.get(String(player.proTeamId));
     if (!playerKickoff) { unmatchedPlayers.push(player.fullName || `Player ${player.id}`); continue; }
-    if (playerKickoff >= kickoff) remainingProjection += forecast(entry);
-    else pointsScored += Number(entry.playerPoolEntry?.appliedStatTotal ?? 0);
+    const finalPoints = Number(entry.playerPoolEntry?.appliedStatTotal ?? 0);
+    if (playerKickoff >= kickoff) remainingPlayers.push({ name: player.fullName || `Player ${player.id}`, proTeamId: String(player.proTeamId), finalPoints: Math.round(finalPoints * 100) / 100 });
+    else pointsScored += finalPoints;
   }
-  return { ...team, pointsScored: Math.round(pointsScored * 100) / 100, remainingProjection: Math.round(remainingProjection * 100) / 100, projectedPoints: Math.round((pointsScored + remainingProjection) * 100) / 100, unmatchedPlayers };
+  return { ...team, pointsScored: Math.round(pointsScored * 100) / 100, remainingPlayers, unmatchedPlayers };
 }
 async function weekKickoffs(week) {
   const payload = await fetchJson(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=${season}&seasontype=2&week=${week}&limit=1000`);
@@ -141,16 +142,22 @@ async function backfill(week = 1) {
   if (!schedule.length) throw new Error(`ESPN returned no Week ${week} matchups`);
   const { firstMnfKickoff, kickoffByProTeam } = await weekKickoffs(week);
   const matchups = schedule.map(matchup => {
-    const home = estimateSideAtKickoff(matchup.home, teams.get(matchup.home.teamId), kickoffByProTeam, firstMnfKickoff);
-    const away = estimateSideAtKickoff(matchup.away, teams.get(matchup.away.teamId), kickoffByProTeam, firstMnfKickoff);
-    home.winProbability = projectedWinProbability(home.projectedPoints, away.projectedPoints);
-    away.winProbability = projectedWinProbability(away.projectedPoints, home.projectedPoints);
-    return { id: matchup.id, home, away };
+    const home = sideAtKickoffReview(matchup.home, teams.get(matchup.home.teamId), kickoffByProTeam, firstMnfKickoff);
+    const away = sideAtKickoffReview(matchup.away, teams.get(matchup.away.teamId), kickoffByProTeam, firstMnfKickoff);
+    return {
+      id: matchup.id,
+      home: { ...home, finalScore: Number(matchup.home.totalPoints ?? 0) },
+      away: { ...away, finalScore: Number(matchup.away.totalPoints ?? 0) }
+    };
   });
   if (matchups.some(matchup => matchup.home.unmatchedPlayers.length || matchup.away.unmatchedPlayers.length)) throw new Error('ESPN did not map every active player to an NFL kickoff; the Week 1 estimate cannot be verified.');
-  const candidate = awardCandidate({ matchups }, schedule);
-  console.log(JSON.stringify({ method: 'retroactive estimate from ESPN retained player forecasts and the Week 1 first-Monday-kickoff state', week, firstMnfKickoff: firstMnfKickoff.toISOString(), candidate, matchups }, null, 2));
-  return { changed: false, message: `Reported a retroactive Week ${week} estimate. Review the workflow log before recording the award.` };
+  console.log(JSON.stringify({
+    method: 'retrospective lineup and score review; historical ESPN projections are intentionally excluded because ESPN replaces them after finalization',
+    week,
+    firstMnfKickoff: firstMnfKickoff.toISOString(),
+    matchups
+  }, null, 2));
+  return { changed: false, message: `Reported a Week ${week} lineup and score review. Add any historical forecasts from an external dated source before recording an award.` };
 }
 async function main() {
   if (!process.env.ESPN_S2 || !process.env.ESPN_SWID) { console.log('Skipping capture: ESPN_S2 and ESPN_SWID are not configured.'); return; }

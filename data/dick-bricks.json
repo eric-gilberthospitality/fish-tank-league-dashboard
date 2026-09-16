@@ -1,1 +1,19 @@
-{"definition":"Awarded each week to the losing team with the highest projection-based win probability at the first Monday Night Football kickoff.","capturePoint":"The automation records ESPN live projected totals during the 15-minute window before the first Monday Night Football game begins, then derives a consistent win probability.","awards":[],"probabilityMethod":"100 \u00f7 (1 + e^(-(team projected total \u2212 opponent projected total) \u00f7 12))"}
+{
+  "definition": "Awarded each week to the losing team with the highest projection-based win probability at the first Monday Night Football kickoff.",
+  "capturePoint": "The automation records ESPN live projected totals during the 15-minute window before the first Monday Night Football game begins, then derives a consistent win probability.",
+  "probabilityMethod": "100 ÷ (1 + e^(-(team projected total − opponent projected total) ÷ 12))",
+  "awards": [
+    {
+      "season": 2026,
+      "week": 1,
+      "managerId": "owner:gilguy",
+      "manager": "Gilguy",
+      "team": "Gilguy",
+      "opponent": "Team 2",
+      "winProbability": 70.1,
+      "finalScore": "134.54–139.30",
+      "capturedAt": "2026-09-15T00:14:00Z",
+      "method": "Retrospective estimate from archived Week 1 forecasts: Bo Nix 13.9 (numberFire) adjusted to the league's 6-point passing TD scoring, plus Denver D/ST 5.9 consensus projection. ESPN confirmed the 127.10–139.30 score state at kickoff and 134.54–139.30 final."
+    }
+  ]
+}
